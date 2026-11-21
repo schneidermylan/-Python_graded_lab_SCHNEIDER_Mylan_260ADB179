@@ -1,16 +1,59 @@
-"""Reading CSV files into flight records and error messages."""
-
+import csv
+import os
+import logging
+from validator import validate_row, to_record
 
 def parse_files(paths: list[str], airports: set[str]) -> tuple[list[dict], list[str]]:
-    """Process the CSV files in the order given.
+    valid_records = []
+    log_messages = []
+    seen_flights = set()
+    
+    for path in paths:
+        basename = os.path.basename(path)
+        with open(path, "r", encoding="utf-8") as f:
+            reader = csv.reader(f)
+            line_num = 0
+            for raw_fields in reader:
+                line_num += 1
+                if line_num == 1:
+                    continue
+                if not raw_fields:
+                    continue
+                joined_raw = ",".join(raw_fields).strip()
+                if not joined_raw or joined_raw.startswith("#"):
+                    continue
+                
+                err_code = validate_row(raw_fields, airports)
+                
+                if err_code is not None:
+                    raw_line_str = ",".join([f.strip() for f in raw_fields])
+                    msg = f"{basename}:{line_num}: {err_code} | {raw_line_str}"
+                    log_messages.append(msg)
+                else:
+                    record = to_record(raw_fields)
+                    dup_key = (record["flight_id"], record["departure_datetime"])
+                    
+                    if dup_key in seen_flights:
+                        raw_line_str = ",".join([f.strip() for f in raw_fields])
+                        msg = f"{basename}:{line_num}: DUPLICATE_FLIGHT | {raw_line_str}"
+                        log_messages.append(msg)
+                    else:
+                        seen_flights.add(dup_key)
+                        valid_records.append(record)
+                        
+    return valid_records, log_messages
 
-    Return (records, errors):
-      records - valid flight records, in input order
-      errors  - one message per invalid row, in input order, formatted as
-                "<file name>:<line number>: <ERROR_CODE> | <free text>"
-                (base file name only, no timestamp or level, no newline)
-
-    Also performs the DUPLICATE_FLIGHT check across all the files.
-    Does not write any files and does not log anything itself.
-    """
-    raise NotImplementedError
+def write_errors_log(log_path: str, log_messages: list[str]):
+    logger = logging.getLogger("flight_parser")
+    logger.setLevel(logging.INFO)
+    handler = logging.FileHandler(log_path, mode="w", encoding="utf-8")
+    handler.setFormatter(logging.Formatter(
+        "%(asctime)s %(levelname)s %(message)s", datefmt="%Y-%m-%d %H:%M:%S"))
+    logger.addHandler(handler)
+    
+    try:
+        for msg in log_messages:
+            logger.warning(msg)
+    finally:
+        logger.removeHandler(handler)
+        handler.close()

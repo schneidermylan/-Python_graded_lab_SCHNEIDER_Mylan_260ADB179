@@ -27,37 +27,46 @@ def run_query(db: list[dict], query: dict) -> dict:
         
     if "order" in query and query["order"] not in ["asc", "desc"]:
         return {"query": query, "error": "INVALID_QUERY", "matches": []}
+        
     for dk in ["departure_datetime", "arrival_datetime"]:
         if dk in query:
             try:
                 datetime.strptime(query[dk], "%Y-%m-%d %H:%M")
             except ValueError:
                 return {"query": query, "error": "INVALID_QUERY", "matches": []}
+                
     matches = []
     for flight in db:
         match = True
-        if "flight_id" in query and flight["flight_id"] != query["flight_id"]:
+        if "flight_id" in query and flight.get("flight_id") != query["flight_id"]:
             match = False
-        if "origin" in query and flight["origin"] != query["origin"]:
+        if "origin" in query and flight.get("origin") != query["origin"]:
             match = False
-        if "destination" in query and flight["destination"] != query["destination"]:
+        if "destination" in query and flight.get("destination") != query["destination"]:
             match = False
-        if "departure_datetime" in query and flight["departure_datetime"] < query["departure_datetime"]:
+        if "departure_datetime" in query and flight.get("departure_datetime", "") < query["departure_datetime"]:
             match = False
-        if "arrival_datetime" in query and flight["arrival_datetime"] > query["arrival_datetime"]:
+        if "arrival_datetime" in query and flight.get("arrival_datetime", "") > query["arrival_datetime"]:
             match = False
-        if "price" in query and flight["price"] > query["price"]:
+        if "price" in query and flight.get("price", float('inf')) > query["price"]:
             match = False
-        if "min_price" in query and flight["price"] < query["min_price"]:
+        if "min_price" in query and flight.get("price", 0) < query["min_price"]:
             match = False    
         if match:
             matches.append(flight)
+            
     if "sort_by" in query:
         key = query["sort_by"]
-        if key not in flight:
+        # Vérification sécurisée de la clé de tri
+        valid_sort_keys = {"flight_id", "origin", "destination", "departure_datetime", "arrival_datetime", "price"}
+        if key not in valid_sort_keys:
             return {"query": query, "error": "INVALID_QUERY", "matches": []}
         reverse = query.get("order", "asc") == "desc"
-        matches = sorted(matches, key=lambda x: x[key], reverse=reverse)
+        try:
+            matches = sorted(matches, key=lambda x: x.get(key, 0), reverse=reverse)
+        except Exception:
+            return {"query": query, "error": "INVALID_QUERY", "matches": []}
+            
     if "limit" in query:
         matches = matches[:query["limit"]]
         

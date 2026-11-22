@@ -1,6 +1,6 @@
 import csv
 import json
-from validor import validate_flight
+from validator import validate_flight
 
 def load_flights(csv_path: str) -> list[dict]:
     flights = []

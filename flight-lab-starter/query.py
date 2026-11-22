@@ -57,7 +57,6 @@ def run_query(db: list[dict], query: dict) -> dict:
             
     if "sort_by" in query:
         key = query["sort_by"]
-        # Vérification sécurisée de la clé de tri
         valid_sort_keys = {"flight_id", "origin", "destination", "departure_datetime", "arrival_datetime", "price"}
         if key not in valid_sort_keys:
             return {"query": query, "error": "INVALID_QUERY", "matches": []}

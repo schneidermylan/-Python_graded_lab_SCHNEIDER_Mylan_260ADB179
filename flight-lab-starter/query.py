@@ -1,73 +1,104 @@
 from datetime import datetime
 
-def run_query(db: list[dict], query: dict) -> dict:
+def validate_query_obj(q: dict) -> bool:
+    if not isinstance(q, dict):
+        return False
+    
     allowed_keys = {
         "flight_id", "origin", "destination", 
         "departure_datetime", "arrival_datetime", 
-        "price", "min_price", "sort_by", "order", "limit"
+        "price", "min_price", 
+        "sort_by", "order", "limit"
     }
-    if not isinstance(query, dict):
-        return {"query": query, "error": "INVALID_QUERY", "matches": []}
-        
-    for k, v in query.items():
+    
+    has_sort_by = "sort_by" in q
+    has_order = "order" in q
+    
+    if has_order and not has_sort_by:
+        return False
+
+    for k, v in q.items():
         if k not in allowed_keys:
-            return {"query": query, "error": "INVALID_QUERY", "matches": []}
-        if k in ["flight_id", "origin", "destination", "departure_datetime", "arrival_datetime", "sort_by", "order"]:
+            return False
+        
+        if k in ("flight_id", "origin", "destination"):
             if not isinstance(v, str):
-                return {"query": query, "error": "INVALID_QUERY", "matches": []}
-        if k in ["price", "min_price", "limit"]:
-            if isinstance(v, bool) or not isinstance(v, (int, float)):
-                return {"query": query, "error": "INVALID_QUERY", "matches": []}
-                
-    if "limit" in query and query["limit"] < 0:
-        return {"query": query, "error": "INVALID_QUERY", "matches": []}
-        
-    if "order" in query and "sort_by" not in query:
-        return {"query": query, "error": "INVALID_QUERY", "matches": []}
-        
-    if "order" in query and query["order"] not in ["asc", "desc"]:
-        return {"query": query, "error": "INVALID_QUERY", "matches": []}
-        
-    for dk in ["departure_datetime", "arrival_datetime"]:
-        if dk in query:
+                return False
+        elif k in ("departure_datetime", "arrival_datetime"):
+            if not isinstance(v, str):
+                return False
             try:
-                datetime.strptime(query[dk], "%Y-%m-%d %H:%M")
+                datetime.strptime(v, "%Y-%m-%d %H:%M")
             except ValueError:
-                return {"query": query, "error": "INVALID_QUERY", "matches": []}
+                return False
+        elif k in ("price", "min_price"):
+            if isinstance(v, bool) or not isinstance(v, (int, float)):
+                return False
+        elif k == "sort_by":
+            if not isinstance(v, str) or v not in {
+                "flight_id", "origin", "destination", 
+                "departure_datetime", "arrival_datetime", "price"
+            }:
+                return False
+        elif k == "order":
+            if not isinstance(v, str) or v not in ("asc", "desc"):
+                return False
+        elif k == "limit":
+            if isinstance(v, bool) or not isinstance(v, int) or v < 0:
+                return False
                 
+    return True
+
+def run_query(db: list[dict], query: dict) -> dict:
+    if not validate_query_obj(query):
+        return {"query": query, "error": "INVALID_QUERY", "matches": []}
+    
     matches = []
     for flight in db:
         match = True
-        if "flight_id" in query and flight.get("flight_id") != query["flight_id"]:
-            match = False
-        if "origin" in query and flight.get("origin") != query["origin"]:
-            match = False
-        if "destination" in query and flight.get("destination") != query["destination"]:
-            match = False
-        if "departure_datetime" in query and flight.get("departure_datetime", "") < query["departure_datetime"]:
-            match = False
-        if "arrival_datetime" in query and flight.get("arrival_datetime", "") > query["arrival_datetime"]:
-            match = False
-        if "price" in query and flight.get("price", float('inf')) > query["price"]:
-            match = False
-        if "min_price" in query and flight.get("price", 0) < query["min_price"]:
-            match = False    
+        for k, v in query.items():
+            if k in ("sort_by", "order", "limit"):
+                continue
+            
+            if k == "flight_id":
+                if flight.get("flight_id") != v:
+                    match = False
+                    break
+            elif k == "origin":
+                if flight.get("origin") != v:
+                    match = False
+                    break
+            elif k == "destination":
+                if flight.get("destination") != v:
+                    match = False
+                    break
+            elif k == "departure_datetime":
+                if flight.get("departure_datetime", "") < v:
+                    match = False
+                    break
+            elif k == "arrival_datetime":
+                if flight.get("arrival_datetime", "") > v:
+                    match = False
+                    break
+            elif k == "price":
+                if flight.get("price", float("inf")) > float(v):
+                    match = False
+                    break
+            elif k == "min_price":
+                if flight.get("price", float("-inf")) < float(v):
+                    match = False
+                    break
         if match:
             matches.append(flight)
-            
+    
     if "sort_by" in query:
-        key = query["sort_by"]
-        valid_sort_keys = {"flight_id", "origin", "destination", "departure_datetime", "arrival_datetime", "price"}
-        if key not in valid_sort_keys:
-            return {"query": query, "error": "INVALID_QUERY", "matches": []}
+        sort_key = query["sort_by"]
         reverse = query.get("order", "asc") == "desc"
-        try:
-            matches = sorted(matches, key=lambda x: x.get(key, 0), reverse=reverse)
-        except Exception:
-            return {"query": query, "error": "INVALID_QUERY", "matches": []}
-            
+        matches = sorted(matches, key=lambda x: x.get(sort_key), reverse=reverse)
+        
     if "limit" in query:
-        matches = matches[:query["limit"]]
+        limit = query["limit"]
+        matches = matches[:limit]
         
     return {"query": query, "matches": matches}
 
@@ -75,7 +106,7 @@ def run_queries(db: list[dict], queries: dict | list) -> list[dict]:
     if isinstance(queries, dict):
         queries = [queries]
     elif not isinstance(queries, list):
-        raise ValueError("Invalid queries format")
+        return []
         
     results = []
     for q in queries:
